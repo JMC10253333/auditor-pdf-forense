@@ -11,7 +11,6 @@ archivos_subidos = st.file_uploader("Arrastra tus PDFs aquí", type="pdf", accep
 
 if archivos_subidos:
     resultados = []
-    # Lista de herramientas de edición comunes
     editores_web = ['ilovepdf', 'smallpdf', 'sodapdf', 'pdf2go', 'nitro', 'foxit', 'canva', 'fpdf', 'quartz']
     
     for archivo in archivos_subidos:
@@ -28,42 +27,43 @@ if archivos_subidos:
         fecha_c = f_crea[2:10] if (f_crea and len(f_crea) > 10) else "Desconocida"
         fecha_m = f_mod[2:10] if (f_mod and len(f_mod) > 10) else "Original"
         
-        # 2. Análisis Estructural (Búsqueda de parches y versiones)
+        # 2. Análisis Estructural (Detección de parches/anotaciones)
         versiones = bytes_data.count(b'%%EOF')
         tiene_anotaciones = False
         
         for pagina in doc:
-            # Detecta si hay "Annotations" (Cuadros de texto o firmas pegadas encima)
-            if pagina.annot_with_cascading_context():
+            # Forma estándar de contar anotaciones (parches de texto, dibujos, etc.)
+            if len(list(pagina.annots())) > 0:
                 tiene_anotaciones = True
-            
-            # Detecta si hay formularios o campos editables agregados a mano
-            if pagina.first_widget:
+                break
+            # Revisar si hay campos de formulario (widgets)
+            if len(list(pagina.widgets())) > 0:
                 tiene_anotaciones = True
+                break
 
-        # 3. Lógica de Riesgo (Sin falsos positivos por tamaño de letra)
+        # 3. Lógica de Riesgo
         nivel = "Bajo"
         detalles = []
         
-        # Alerta A: Software de edición en Metadatos
+        # Alerta: Software de edición
         if any(h in productor.lower() for h in editores_web) or any(h in creador.lower() for h in editores_web):
             nivel = "Crítico"
             detalles.append(f"Software de edición detectado: {productor}")
 
-        # Alerta B: Discrepancia de fechas (Si no es el mismo día/hora)
+        # Alerta: Manipulación Temporal
         if f_mod and f_crea and f_mod != f_crea:
             nivel = "Alto"
-            detalles.append("⚠️ El archivo fue modificado después de su emisión original")
+            detalles.append("⚠️ Archivo re-guardado (discrepancia de fechas)")
 
-        # Alerta C: Capas de cambios (Incremental Updates)
+        # Alerta: Capas
         if versiones > 1:
             nivel = "Crítico"
-            detalles.append(f"Se detectaron {versiones} capas de guardado (Edición incremental)")
+            detalles.append(f"Se detectaron {versiones} capas de guardado")
 
-        # Alerta D: Parches o Anotaciones
+        # Alerta: Parches detectados
         if tiene_anotaciones:
             nivel = "Crítico"
-            detalles.append("🕵️ Parche detectado: Se encontraron elementos superpuestos al contenido original")
+            detalles.append("🕵️ Parche detectado: Se encontraron elementos superpuestos")
 
         resultados.append({
             "Archivo": archivo.name,
@@ -81,5 +81,3 @@ if archivos_subidos:
         return f'background-color: {color}; color: white; font-weight: bold'
 
     st.dataframe(df.style.map(style_riesgo, subset=['Riesgo']), use_container_width=True)
-    # python -m streamlit run "C:\Users\marcelo.castro\OneDrive\Personal\Python\app_web.py"
-    # ######################################## 
