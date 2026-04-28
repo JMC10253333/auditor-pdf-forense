@@ -1,18 +1,18 @@
 import streamlit as st
 import fitz
 import pandas as pd
-from collections import Counter
 
 st.set_page_config(page_title="Auditor Forense de PDFs", layout="wide")
 
 st.title("🔍 Analizador Forense de Documentos")
-st.write("Especializado en detección de parches en montos ($) y manipulación de metadatos.")
+st.write("Análisis de integridad basado en metadatos, cronología y estructura de capas.")
 
 archivos_subidos = st.file_uploader("Arrastra tus PDFs aquí", type="pdf", accept_multiple_files=True)
 
 if archivos_subidos:
     resultados = []
-    editores_web = ['ilovepdf', 'smallpdf', 'sodapdf', 'pdf2go', 'nitro', 'foxit', 'canva']
+    # Lista de herramientas de edición comunes
+    editores_web = ['ilovepdf', 'smallpdf', 'sodapdf', 'pdf2go', 'nitro', 'foxit', 'canva', 'fpdf', 'quartz']
     
     for archivo in archivos_subidos:
         bytes_data = archivo.read()
@@ -28,55 +28,42 @@ if archivos_subidos:
         fecha_c = f_crea[2:10] if (f_crea and len(f_crea) > 10) else "Desconocida"
         fecha_m = f_mod[2:10] if (f_mod and len(f_mod) > 10) else "Original"
         
-        # 2. Análisis de Texto y Cifras ($)
-        tamanos_fuentes = []
-        anomalias_dinero = []
+        # 2. Análisis Estructural (Búsqueda de parches y versiones)
+        versiones = bytes_data.count(b'%%EOF')
+        tiene_anotaciones = False
         
         for pagina in doc:
-            dict_texto = pagina.get_text("dict")
-            for bloque in dict_texto["blocks"]:
-                if "lines" in bloque:
-                    for linea in bloque["lines"]:
-                        for span in linea["spans"]:
-                            texto = span["text"].strip()
-                            tamano = round(span["size"], 1)
-                            tamanos_fuentes.append(tamano)
-                            
-                            # Filtro: Solo nos interesan textos con "$" o números con formato de miles (ej: 250.000)
-                            es_cifra = "$" in texto or (any(char.isdigit() for char in texto) and "." in texto)
-                            if es_cifra:
-                                anomalias_dinero.append(tamano)
+            # Detecta si hay "Annotations" (Cuadros de texto o firmas pegadas encima)
+            if pagina.annot_with_cascading_context():
+                tiene_anotaciones = True
+            
+            # Detecta si hay formularios o campos editables agregados a mano
+            if pagina.first_widget:
+                tiene_anotaciones = True
 
-        # 3. Lógica de Riesgo
+        # 3. Lógica de Riesgo (Sin falsos positivos por tamaño de letra)
         nivel = "Bajo"
         detalles = []
         
-        # Alerta: Herramientas Web
-        if any(h in productor.lower() for h in editores_web):
+        # Alerta A: Software de edición en Metadatos
+        if any(h in productor.lower() for h in editores_web) or any(h in creador.lower() for h in editores_web):
             nivel = "Crítico"
             detalles.append(f"Software de edición detectado: {productor}")
 
-        # Alerta: Manipulación Temporal
+        # Alerta B: Discrepancia de fechas (Si no es el mismo día/hora)
         if f_mod and f_crea and f_mod != f_crea:
             nivel = "Alto"
-            detalles.append("⚠️ El archivo fue re-guardado (discrepancia de fechas)")
+            detalles.append("⚠️ El archivo fue modificado después de su emisión original")
 
-        # Alerta: Capas (Incremental Updates)
-        versiones = bytes_data.count(b'%%EOF')
+        # Alerta C: Capas de cambios (Incremental Updates)
         if versiones > 1:
             nivel = "Crítico"
-            detalles.append(f"Se detectaron {versiones} capas de cambios estructurales")
+            detalles.append(f"Se detectaron {versiones} capas de guardado (Edición incremental)")
 
-        # Alerta: Anomalía en Cifras Monetarias
-        if tamanos_fuentes and anomalias_dinero:
-            tamano_dominante = Counter(tamanos_fuentes).most_common(1)[0][0]
-            # Si el monto ($) es un 15% más grande que la letra común del documento
-            for tam_cifra in anomalias_dinero:
-                if tam_cifra > tamano_dominante * 1.15:
-                    nivel = "Crítico"
-                    msg = f"🔍 MONTO SOSPECHOSO: Cifra detectada con tamaño {tam_cifra}pt (superior al {tamano_dominante}pt base)"
-                    if msg not in detalles:
-                        detalles.append(msg)
+        # Alerta D: Parches o Anotaciones
+        if tiene_anotaciones:
+            nivel = "Crítico"
+            detalles.append("🕵️ Parche detectado: Se encontraron elementos superpuestos al contenido original")
 
         resultados.append({
             "Archivo": archivo.name,
@@ -94,6 +81,5 @@ if archivos_subidos:
         return f'background-color: {color}; color: white; font-weight: bold'
 
     st.dataframe(df.style.map(style_riesgo, subset=['Riesgo']), use_container_width=True)
-    # ########################################
     # python -m streamlit run "C:\Users\marcelo.castro\OneDrive\Personal\Python\app_web.py"
     # ######################################## 
