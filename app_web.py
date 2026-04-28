@@ -6,19 +6,29 @@ from datetime import datetime
 
 st.set_page_config(page_title="Auditor Forense de PDFs", layout="wide")
 
-# --- NUEVA SECCIÓN: FECHA DE ACTUALIZACIÓN ---
-# Obtiene la fecha en que se modificó este archivo de código
+# --- FECHA DE ACTUALIZACIÓN AUTOMÁTICA ---
 try:
     fecha_update = datetime.fromtimestamp(os.path.getmtime(__file__)).strftime('%d/%m/%Y %H:%M')
 except:
-    fecha_update = "28/04/2026" # Fecha manual de respaldo
+    fecha_update = "28/04/2026"
 
 st.title("🔍 Analizador Forense de Documentos")
-st.info(f"🚀 **Última actualización del motor de análisis:** {fecha_update}")
-st.write("Análisis de integridad basado en metadatos, cronología y estructura de capas.")
+st.info(f"🚀 **Motor de análisis v2.1** | Última actualización: {fecha_update}")
 
-# --- EL RESTO DEL CÓDIGO SIGUE IGUAL ---
-archivos_subidos = st.file_uploader("Arrastra tus PDFs aquí", type="pdf", accept_multiple_files=True)
+# --- LÓGICA PARA BORRAR CONSULTAS ---
+if 'historico' not in st.session_state:
+    st.session_state.historico = []
+
+col1, col2 = st.columns([8, 1])
+with col2:
+    if st.button("🗑️ Borrar"):
+        st.session_state.historico = []
+        st.rerun()
+
+st.write("Sube tus archivos para verificar metadatos, cronología y parches estructurales.")
+
+# El cargador de archivos
+archivos_subidos = st.file_uploader("Arrastra tus PDFs aquí", type="pdf", accept_multiple_files=True, key="uploader")
 
 if archivos_subidos:
     resultados = []
@@ -28,6 +38,7 @@ if archivos_subidos:
         bytes_data = archivo.read()
         doc = fitz.open(stream=bytes_data, filetype="pdf")
         
+        # 1. Metadatos
         metadatos = doc.metadata
         productor = metadatos.get('producer', 'Desconocido')
         creador = metadatos.get('creator', 'Desconocido')
@@ -37,17 +48,16 @@ if archivos_subidos:
         fecha_c = f_crea[2:10] if (f_crea and len(f_crea) > 10) else "Desconocida"
         fecha_m = f_mod[2:10] if (f_mod and len(f_mod) > 10) else "Original"
         
+        # 2. Estructura
         versiones = bytes_data.count(b'%%EOF')
         tiene_anotaciones = False
         
         for pagina in doc:
-            if len(list(pagina.annots())) > 0:
-                tiene_anotaciones = True
-                break
-            if len(list(pagina.widgets())) > 0:
+            if len(list(pagina.annots())) > 0 or len(list(pagina.widgets())) > 0:
                 tiene_anotaciones = True
                 break
 
+        # 3. Riesgo
         nivel = "Bajo"
         detalles = []
         
@@ -65,7 +75,7 @@ if archivos_subidos:
 
         if tiene_anotaciones:
             nivel = "Crítico"
-            detalles.append("🕵️ Parche detectado: Se encontraron elementos superpuestos")
+            detalles.append("🕵️ Parche detectado: Elementos superpuestos encontrados")
 
         resultados.append({
             "Archivo": archivo.name,
@@ -76,7 +86,12 @@ if archivos_subidos:
             "Análisis": " | ".join(detalles) if detalles else "Integridad aparente"
         })
 
-    df = pd.DataFrame(resultados)
+    # Guardamos en el estado de la sesión
+    st.session_state.historico = resultados
+
+# Mostrar la tabla si hay datos
+if st.session_state.historico:
+    df = pd.DataFrame(st.session_state.historico)
     
     def style_riesgo(val):
         color = '#ff4b4b' if val == 'Crítico' else ('#ffa500' if val == 'Alto' else '#28a745')
