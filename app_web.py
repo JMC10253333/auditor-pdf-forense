@@ -6,29 +6,31 @@ from datetime import datetime
 
 st.set_page_config(page_title="Auditor Forense de PDFs", layout="wide")
 
-# --- FECHA DE ACTUALIZACIÓN AUTOMÁTICA ---
-try:
-    fecha_update = datetime.fromtimestamp(os.path.getmtime(__file__)).strftime('%d/%m/%Y %H:%M')
-except:
-    fecha_update = "28/04/2026"
-
 st.title("🔍 Analizador Forense de Documentos")
-st.info(f"🚀 **Motor de análisis v2.1** | Última actualización: {fecha_update}")
+st.write("Sube tus archivos para verificar metadatos, cronología y parches estructurales.")
 
-# --- LÓGICA PARA BORRAR CONSULTAS ---
+# --- LÓGICA DE ESTADO Y LIMPIEZA ---
+# Creamos un contador en el estado de la sesión para el 'key' del cargador
+if 'uploader_key' not in st.session_state:
+    st.session_state.uploader_key = 0
 if 'historico' not in st.session_state:
     st.session_state.historico = []
 
-col1, col2 = st.columns([8, 1])
-with col2:
-    if st.button("🗑️ Borrar"):
-        st.session_state.historico = []
-        st.rerun()
+# Botón Borrar
+if st.button("🗑️ Borrar consultas y archivos"):
+    st.session_state.historico = []
+    # Al aumentar este contador, el file_uploader se reseteará completamente
+    st.session_state.uploader_key += 1
+    st.rerun()
 
-st.write("Sube tus archivos para verificar metadatos, cronología y parches estructurales.")
-
-# El cargador de archivos
-archivos_subidos = st.file_uploader("Arrastra tus PDFs aquí", type="pdf", accept_multiple_files=True, key="uploader")
+# --- CARGADOR DE ARCHIVOS ---
+# Usamos el uploader_key para forzar el reseteo de los adjuntos
+archivos_subidos = st.file_uploader(
+    "Arrastra tus PDFs aquí", 
+    type="pdf", 
+    accept_multiple_files=True, 
+    key=f"uploader_{st.session_state.uploader_key}"
+)
 
 if archivos_subidos:
     resultados = []
@@ -75,7 +77,7 @@ if archivos_subidos:
 
         if tiene_anotaciones:
             nivel = "Crítico"
-            detalles.append("🕵️ Parche detectado: Elementos superpuestos encontrados")
+            detalles.append("🕵️ Parche detectado: Elementos superpuestos")
 
         resultados.append({
             "Archivo": archivo.name,
@@ -85,16 +87,21 @@ if archivos_subidos:
             "Riesgo": nivel,
             "Análisis": " | ".join(detalles) if detalles else "Integridad aparente"
         })
-
-    # Guardamos en el estado de la sesión
     st.session_state.historico = resultados
 
-# Mostrar la tabla si hay datos
+# Mostrar la tabla
 if st.session_state.historico:
     df = pd.DataFrame(st.session_state.historico)
-    
     def style_riesgo(val):
         color = '#ff4b4b' if val == 'Crítico' else ('#ffa500' if val == 'Alto' else '#28a745')
         return f'background-color: {color}; color: white; font-weight: bold'
-
     st.dataframe(df.style.map(style_riesgo, subset=['Riesgo']), use_container_width=True)
+
+# --- FECHA DE ACTUALIZACIÓN AL FINAL ---
+try:
+    fecha_update = datetime.fromtimestamp(os.path.getmtime(__file__)).strftime('%d/%m/%Y %H:%M')
+except:
+    fecha_update = "28/04/2026"
+
+st.divider()
+st.caption(f"🚀 **Motor de análisis v2.2** | Última actualización: {fecha_update}")
